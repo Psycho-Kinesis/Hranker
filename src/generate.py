@@ -39,8 +39,20 @@ than a long essay.
 
 # Overridable, because free-tier model availability changes over time and a
 # retired id fails as a 404 rather than degrading to something sensible.
-DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
+#
+# Not the newest model on purpose. Measured over 5 calls each: gemini-3.8-flash
+# returned 503 UNAVAILABLE twice (3/5, avg 3.6s) while gemini-3.5-flash and
+# gemini-3.6-flash were 5/5 (avg 5.6s and 5.9s). Two seconds of latency is a
+# good trade for a demo that does not drop into fallback mode while someone is
+# watching it.
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-5"
+
+# Gemini 3.x spends part of this budget reasoning before it writes anything, so
+# a limit sized for the answer alone truncates it. Measured: 500 produced half
+# a sentence. Claude's budget is separate because it is not drawn down the same
+# way, and the grounding prompt keeps answers short on both.
+GEMINI_MAX_OUTPUT_TOKENS = int(os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "2048"))
 
 
 def _format_context(chunks: List[Dict]) -> str:
@@ -152,7 +164,11 @@ def _generate_with_gemini(query: str, chunks: List[Dict], api_key: str, sources:
         contents=_build_user_message(query, chunks),
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
-            max_output_tokens=500,
+            # Gemini 3.x reasons before answering and those thinking tokens are
+            # drawn from this same budget, so a limit sized for the visible
+            # answer alone gets spent thinking and truncates mid-sentence. This
+            # is deliberately generous; the prompt keeps answers short.
+            max_output_tokens=GEMINI_MAX_OUTPUT_TOKENS,
         ),
     )
 
@@ -164,8 +180,20 @@ def _generate_with_gemini(query: str, chunks: List[Dict], api_key: str, sources:
     if not text:
         blocked = getattr(response.prompt_feedback, "block_reason", None)
         raise RuntimeError(f"no text returned (block_reason={blocked})")
+
+    # A truncated answer still arrives as ordinary text, so say so rather than
+    # presenting half a sentence as a complete one.
+    if _hit_token_limit(response):
+        text += "\n\n_(Answer truncated — it hit the output token limit.)_"
     return {"answer": text, "mode": "llm", "provider": "gemini",
             "refused": False, "sources": sources}
+
+
+def _hit_token_limit(response) -> bool:
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return False
+    return str(getattr(candidates[0], "finish_reason", "")).endswith("MAX_TOKENS")
 
 
 def _generate_with_claude(query: str, chunks: List[Dict], api_key: str, sources: List[str]) -> Dict:

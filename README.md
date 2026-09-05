@@ -7,11 +7,11 @@ tooling a B2B edtech platform (e.g. one that supplies technology to coaching
 institutes) could offer its partner institutes to reduce repetitive-doubt
 load on faculty.
 
-![The assistant answering a question, with the retrieved source notes and their similarity scores expanded below the answer](demo.png)
+![The assistant answering a question with a Gemini-generated answer, its cited source, and the retrieved source notes with similarity scores expanded below](demo.png)
 
-*Shown in offline fallback mode (no API key set). The "Retrieved source notes"
-panel is the point: every answer can be checked against the exact notes it
-came from, and their similarity scores.*
+*The "Retrieved source notes" panel is the point: the generated answer sits
+directly above the note it came from and that note's similarity score, so
+grounding can be checked rather than taken on trust.*
 
 ## Why this project
 Coaching institutes get flooded with repetitive conceptual doubts. A grounded
@@ -58,10 +58,31 @@ A question that matches a single non-numeric term is still answered, but the
 UI names that term above the answer rather than below it, so a thin match is
 visible before the note is trusted.
 
-Refusal in LLM mode is separate and stronger: the system prompt instructs the
-model to say when the notes are insufficient. That instruction never runs
-without an API key, which is exactly why the offline path needed its own
-guard — the deployed demo runs in fallback mode by default.
+Refusal in LLM mode is separate and stronger, and it is now verified rather
+than assumed. Asked "What percentage of India's GDP is spent on education?" —
+a question that passes the retrieval gate, since it genuinely matches
+`percentage`, but that the notes cannot answer — the model replied that the
+notes contain no such information and described what they do cover, instead of
+supplying the figure from its own knowledge. That is the anti-hallucination
+claim actually working.
+
+The two layers do different jobs. The retrieval-side checks refuse before any
+API call, so an out-of-corpus question costs nothing. The prompt-side refusal
+catches what gets through: questions that retrieve plausible notes which turn
+out not to answer them.
+
+### Model choice
+
+`gemini-3.5-flash`, and deliberately not the newest. Measured over 5 calls
+each: `gemini-3.8-flash` returned `503 UNAVAILABLE` twice (3/5, avg 3.6s),
+while `gemini-3.5-flash` and `gemini-3.6-flash` were 5/5 (avg 5.6s and 5.9s).
+Two seconds of latency is worth a demo that doesn't fall back to offline mode
+while someone is watching. `GEMINI_MODEL` overrides it.
+
+One sharp edge worth knowing: Gemini 3.x reasons before answering, and those
+thinking tokens come out of `max_output_tokens`. At 500 the model spent 434
+tokens thinking and truncated its answer mid-sentence; the visible answer
+needed about 265. The budget is 2048 for that reason.
 
 ## Architecture
 
