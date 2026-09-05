@@ -1,0 +1,14 @@
+[
+  {"query": "What is the formula for successive percentage change?", "expected_source": "quant_percentages.md"},
+  {"query": "How do I quickly convert 1/7 into a percentage?", "expected_source": "quant_percentages.md"},
+  {"query": "A can finish a job in 12 days and B in 18 days, how long together?", "expected_source": "quant_time_and_work.md"},
+  {"query": "How does a drain pipe affect the combined filling rate of a tank?", "expected_source": "quant_time_and_work.md"},
+  {"query": "How do I solve the only son grandfather photograph puzzle?", "expected_source": "reasoning_blood_relations.md"},
+  {"query": "What does it mean when a father's sister's husband is called?", "expected_source": "reasoning_blood_relations.md"},
+  {"query": "If MOUNTAIN is coded as NPVOUBJO what is the rule?", "expected_source": "reasoning_coding_decoding.md"},
+  {"query": "What happens when an alphabet shift goes past Z?", "expected_source": "reasoning_coding_decoding.md"},
+  {"query": "Why is Article 32 called the heart and soul of the constitution?", "expected_source": "gs_fundamental_rights.md"},
+  {"query": "Is the right to property still a fundamental right in India?", "expected_source": "gs_fundamental_rights.md"},
+  {"query": "Which Indian rivers flow west into the Arabian Sea?", "expected_source": "gs_major_rivers.md"},
+  {"query": "Where does the Brahmaputra originate before entering India?", "expected_source": "gs_major_rivers.md"}
+]
