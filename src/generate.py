@@ -3,15 +3,19 @@ Generation: turn retrieved chunks + a student's question into a grounded
 answer.
 
 Two modes:
-1. LLM mode (preferred) — calls the Claude API if ANTHROPIC_API_KEY is set
-   in the environment. The prompt explicitly instructs the model to answer
-   ONLY from the provided context and to say so if the context doesn't
-   cover the question, which is what keeps a doubt-solving bot from
-   hallucinating exam facts.
+1. LLM mode (preferred) — calls Gemini if GEMINI_API_KEY is set, or Claude if
+   ANTHROPIC_API_KEY is set. The same grounding prompt is used either way: it
+   instructs the model to answer ONLY from the provided context and to say so
+   if the context doesn't cover the question, which is what keeps a
+   doubt-solving bot from hallucinating exam facts.
 2. Offline fallback mode — if no API key is available (e.g. running in a
    sandbox with no LLM access), returns a clearly-labeled extractive
    summary of the top retrieved chunk instead of a generated answer. This
    keeps the pipeline runnable end-to-end for demos/testing without a key.
+
+The provider is chosen by which key is present, so deploying with a different
+one is a secrets change rather than a code change. Grounding, citation and
+refusal behaviour live outside the provider call and are identical for both.
 """
 
 from __future__ import annotations
@@ -33,6 +37,12 @@ than a long essay.
 """
 
 
+# Overridable, because free-tier model availability changes over time and a
+# retired id fails as a 404 rather than degrading to something sensible.
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-5"
+
+
 def _format_context(chunks: List[Dict]) -> str:
     blocks = []
     for i, c in enumerate(chunks, 1):
@@ -40,6 +50,12 @@ def _format_context(chunks: List[Dict]) -> str:
             f"[Note {i}: {c['doc_title']} — {c['section_title']}]\n{c['text']}"
         )
     return "\n\n".join(blocks)
+
+
+def _build_user_message(query: str, chunks: List[Dict]) -> str:
+    """The retrieved notes and the question, in one string. Shared by both
+    providers so the grounding they receive is identical."""
+    return f"Reference notes:\n\n{_format_context(chunks)}\n\nStudent's question: {query}"
 
 
 # Below this cosine score nothing in the corpus is genuinely related. Measured,
@@ -81,7 +97,6 @@ def _no_topical_evidence(matched_terms) -> bool:
 
 def generate_answer(query: str, chunks: List[Dict], matched_terms=None) -> Dict:
     """Returns {'answer': str, 'mode': 'llm' | 'fallback', 'sources': [...]}"""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
     sources = [f"{c['doc_title']} — {c['section_title']}" for c in chunks]
 
     # Refuse before generating, in both modes. Sending notes the question has
@@ -91,38 +106,88 @@ def generate_answer(query: str, chunks: List[Dict], matched_terms=None) -> Dict:
             or _no_topical_evidence(matched_terms):
         return {"answer": REFUSAL, "mode": "fallback", "refused": True, "sources": []}
 
-    if api_key:
+    provider, api_key = _select_provider()
+    if provider:
         try:
-            return _generate_with_claude(query, chunks, api_key, sources)
+            return _PROVIDERS[provider](query, chunks, api_key, sources)
         except Exception as e:
             # Fall through to offline mode rather than crashing the demo
             fallback = _generate_fallback(query, chunks, sources)
             fallback["answer"] = (
-                f"[LLM call failed: {e}. Showing offline fallback instead.]\n\n"
+                f"[{provider} call failed: {e}. Showing offline fallback instead.]\n\n"
                 + fallback["answer"]
             )
             return fallback
-    else:
-        return _generate_fallback(query, chunks, sources)
+    return _generate_fallback(query, chunks, sources)
+
+
+def _select_provider():
+    """Pick a provider from whichever key is set, so switching provider is a
+    secrets change rather than a code change. GOOGLE_API_KEY is accepted too
+    because the Google SDK and its docs use that name interchangeably."""
+    for provider, variables in (
+        ("gemini", ("GEMINI_API_KEY", "GOOGLE_API_KEY")),
+        ("claude", ("ANTHROPIC_API_KEY",)),
+    ):
+        for variable in variables:
+            key = os.environ.get(variable)
+            if key:
+                return provider, key
+    return None, None
+
+
+def _generate_with_gemini(query: str, chunks: List[Dict], api_key: str, sources: List[str]) -> Dict:
+    """Google Gemini, via the `google-genai` SDK.
+
+    The model is overridable because free-tier model availability changes and
+    an unavailable id is a 404 rather than a fallback to something sensible.
+    If this errors, set GEMINI_MODEL to a model your key can reach.
+    """
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
+        contents=_build_user_message(query, chunks),
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=500,
+        ),
+    )
+
+    # .text is None when the response carries no text part — a safety block or
+    # a candidate that stopped before emitting one. Raising here routes into
+    # the offline fallback rather than rendering an empty answer as if it were
+    # a real one.
+    text = response.text
+    if not text:
+        blocked = getattr(response.prompt_feedback, "block_reason", None)
+        raise RuntimeError(f"no text returned (block_reason={blocked})")
+    return {"answer": text, "mode": "llm", "provider": "gemini",
+            "refused": False, "sources": sources}
 
 
 def _generate_with_claude(query: str, chunks: List[Dict], api_key: str, sources: List[str]) -> Dict:
     import anthropic
 
     client = anthropic.Anthropic(api_key=api_key)
-    context = _format_context(chunks)
-    user_message = f"Reference notes:\n\n{context}\n\nStudent's question: {query}"
-
     response = client.messages.create(
-        model="claude-sonnet-5",  # check docs.claude.com for the current recommended model string
+        model=os.environ.get("ANTHROPIC_MODEL", DEFAULT_CLAUDE_MODEL),
         max_tokens=500,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
+        messages=[{"role": "user", "content": _build_user_message(query, chunks)}],
     )
     answer_text = "".join(
         block.text for block in response.content if block.type == "text"
     )
-    return {"answer": answer_text, "mode": "llm", "sources": sources}
+    if not answer_text:
+        raise RuntimeError(f"no text returned (stop_reason={response.stop_reason})")
+    return {"answer": answer_text, "mode": "llm", "provider": "claude",
+            "refused": False, "sources": sources}
+
+
+_PROVIDERS = {"gemini": _generate_with_gemini, "claude": _generate_with_claude}
 
 
 def _generate_fallback(query: str, chunks: List[Dict], sources: List[str]) -> Dict:
@@ -136,8 +201,9 @@ def _generate_fallback(query: str, chunks: List[Dict], sources: List[str]) -> Di
         return {"answer": REFUSAL, "mode": "fallback", "refused": True, "sources": []}
     top = chunks[0]
     answer = (
-        f"(Offline fallback mode — no ANTHROPIC_API_KEY set, so this is the top-matching "
-        f"note shown directly rather than an LLM-generated answer.)\n\n"
+        f"(Offline fallback mode — no LLM available, so this is the top-matching "
+        f"note shown directly rather than a generated answer. Set GEMINI_API_KEY "
+        f"or ANTHROPIC_API_KEY to enable generation.)\n\n"
         f"From \"{top['doc_title']} — {top['section_title']}\":\n\n{top['text']}"
     )
     return {"answer": answer, "mode": "fallback", "refused": False, "sources": sources}

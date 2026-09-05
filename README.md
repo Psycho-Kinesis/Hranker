@@ -94,11 +94,14 @@ Student question
     rather than keyword overlap.
 - **Retrieval** (`src/retrieve.py`): embeds the query with the same fitted
   backend and ranks chunks by cosine similarity.
-- **Generation** (`src/generate.py`): builds a prompt that instructs Claude
-  to answer *only* from the retrieved notes and to say so if they don't
-  cover the question. If no `ANTHROPIC_API_KEY` is set, falls back to
-  returning the top-matching note directly (clearly labeled) so the whole
-  pipeline stays runnable and demoable without a key.
+- **Generation** (`src/generate.py`): builds a prompt instructing the model to
+  answer *only* from the retrieved notes and to say so if they don't cover the
+  question. Gemini and Claude are both supported; whichever key is present
+  decides, so switching provider is a secrets change rather than a code
+  change. The grounding prompt, citation format and refusal checks sit outside
+  the provider call and are identical either way. With no key at all, it falls
+  back to returning the top-matching note (clearly labeled), so the pipeline
+  stays runnable and demoable.
 - **UI** (`app.py`): a Streamlit chat-style front-end with an expandable
   "sources" panel — this is what you'd actually screen-share in an
   interview.
@@ -171,9 +174,13 @@ python src/rag_pipeline.py "What is the successive percentage change formula?"
 python eval/evaluate_retrieval.py
 
 # 4. Launch the demo UI
-export ANTHROPIC_API_KEY=your_key_here   # optional — omit to run in offline fallback mode
+export GEMINI_API_KEY=your_key_here      # optional — or ANTHROPIC_API_KEY; omit for offline fallback
 streamlit run app.py
 ```
+
+A free Gemini key from [Google AI Studio](https://aistudio.google.com/apikey)
+is enough to run generation. `GEMINI_MODEL` overrides the model if the default
+isn't available on your key.
 
 `data/processed/` holds generated artifacts (vectors, chunk metadata, and the
 pickled fitted embedder) and is gitignored — step 1 regenerates it in about a
@@ -183,8 +190,8 @@ scikit-learn version, or unpickling warns about version skew.
 ## Deployment
 
 On Streamlit Community Cloud, point the app at `app.py` and add
-`ANTHROPIC_API_KEY` under **Settings → Secrets** (optional — without it the
-app runs in offline fallback mode).
+`GEMINI_API_KEY` (or `ANTHROPIC_API_KEY`) under **Settings → Secrets**. Both
+are optional — without either, the app runs in offline fallback mode.
 
 Because `data/processed/` is gitignored, a fresh deploy starts with no index.
 `app.py` detects that and builds one on first run, so deployment stays a

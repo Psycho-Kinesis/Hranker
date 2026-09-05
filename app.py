@@ -30,8 +30,9 @@ with st.sidebar:
         "2. The top-matching notes are retrieved.\n"
         "3. An LLM generates an answer **grounded only in those notes**, and "
         "cites the section it used.\n\n"
-        "If no `ANTHROPIC_API_KEY` is set, the app falls back to showing the "
-        "top-matching note directly instead of an LLM-generated answer."
+        "Generation uses Gemini or Claude, whichever key is set "
+        "(`GEMINI_API_KEY` / `ANTHROPIC_API_KEY`). With neither, the app falls "
+        "back to showing the top-matching note directly."
     )
     st.divider()
     st.markdown("**Sample questions to try:**")
@@ -76,7 +77,11 @@ if query:
     with st.spinner("Searching notes and generating answer..."):
         result = pipeline.ask(query, k=k)
 
-    mode_label = "🤖 LLM-generated (Claude)" if result["mode"] == "llm" else "📄 Offline fallback (no API key set)"
+    if result["mode"] == "llm":
+        provider = {"gemini": "Gemini", "claude": "Claude"}.get(result.get("provider"), "LLM")
+        mode_label = f"🤖 LLM-generated ({provider})"
+    else:
+        mode_label = "📄 Offline fallback (no API key set)"
     st.markdown(f"**Mode:** {mode_label}")
 
     terms = result.get("matched_terms")
