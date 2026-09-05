@@ -7,6 +7,12 @@ tooling a B2B edtech platform (e.g. one that supplies technology to coaching
 institutes) could offer its partner institutes to reduce repetitive-doubt
 load on faculty.
 
+![The assistant answering a question, with the retrieved source notes and their similarity scores expanded below the answer](demo.png)
+
+*Shown in offline fallback mode (no API key set). The "Retrieved source notes"
+panel is the point: every answer can be checked against the exact notes it
+came from, and their similarity scores.*
+
 ## Why this project
 Coaching institutes get flooded with repetitive conceptual doubts. A grounded
 RAG assistant can resolve the common ones instantly, cite the exact note it
@@ -37,8 +43,8 @@ Student question
 - **Embeddings** (`src/embeddings.py`): two swappable backends behind one
   interface —
   - `TfidfEmbedder` (default): TF-IDF + truncated SVD, runs fully offline,
-    no model download required. This is what the shipped index was built
-    with.
+    no model download required. This is what `python src/ingest.py` builds
+    the index with unless you change the backend.
   - `SentenceTransformerEmbedder`: real dense semantic embeddings via
     `sentence-transformers`, a one-line swap for when you have full
     internet access — recommended upgrade path, since it captures meaning
@@ -75,7 +81,10 @@ earn its keep.
 
 ## Running it
 
+Requires **Python 3.10+** (the `anthropic` 1.x SDK dropped 3.9).
+
 ```bash
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 # 1. Build the index from data/raw/*.md
@@ -92,6 +101,22 @@ export ANTHROPIC_API_KEY=your_key_here   # optional — omit to run in offline f
 streamlit run app.py
 ```
 
+`data/processed/` holds generated artifacts (vectors, chunk metadata, and the
+pickled fitted embedder) and is gitignored — step 1 regenerates it in about a
+second. Rebuild it rather than reusing an index pickled by a different
+scikit-learn version, or unpickling warns about version skew.
+
+## Deployment
+
+On Streamlit Community Cloud, point the app at `app.py` and add
+`ANTHROPIC_API_KEY` under **Settings → Secrets** (optional — without it the
+app runs in offline fallback mode).
+
+Because `data/processed/` is gitignored, a fresh deploy starts with no index.
+`app.py` detects that and builds one on first run, so deployment stays a
+single step. The alternative — committing the index — would work at this
+corpus size but doesn't generalise, and it would mean committing a pickle.
+
 ## What I'd build next
 - Swap in `sentence-transformers` embeddings once running with full internet
   access, and re-run the eval to quantify the lift over TF-IDF.
@@ -105,7 +130,7 @@ streamlit run app.py
 
 ## Project structure
 ```
-doubt-solving-rag/
+Hranker-/
 ├── data/
 │   ├── raw/            # source knowledge-base notes (markdown)
 │   └── processed/       # generated: vectors.npy, chunks.json, embedder.pkl

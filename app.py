@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 import streamlit as st
+from ingest import PROCESSED_DIR, build_index
 from rag_pipeline import RAGPipeline
 
 st.set_page_config(page_title="Doubt Solving Assistant", page_icon="📚", layout="centered")
@@ -45,6 +46,16 @@ with st.sidebar:
 
 @st.cache_resource
 def load_pipeline():
+    """Load the pipeline, building the index first if it isn't there yet.
+
+    data/processed/ is gitignored, so a fresh deploy (e.g. Streamlit
+    Community Cloud) starts with no index at all. Building it on first run
+    takes about a second for this corpus and keeps deployment a single step,
+    rather than needing a shell command a hosted runtime doesn't offer.
+    """
+    if not (PROCESSED_DIR / "vectors.npy").exists():
+        with st.spinner("Building the knowledge-base index (first run only)..."):
+            build_index()
     return RAGPipeline()
 
 
@@ -52,8 +63,9 @@ try:
     pipeline = load_pipeline()
 except FileNotFoundError:
     st.error(
-        "No index found. Run `python src/ingest.py` first to build the "
-        "knowledge base index."
+        "No index found, and it could not be built automatically. Check that "
+        "`data/raw/` contains the knowledge-base markdown files, then run "
+        "`python src/ingest.py`."
     )
     st.stop()
 
