@@ -15,9 +15,10 @@ class RAGPipeline:
 
     def ask(self, query: str, k: int = 3) -> Dict:
         retrieved = self.retriever.search(query, k=k)
-        result = generate_answer(query, retrieved)
-        result["retrieved_chunks"] = retrieved
-        result["matched_terms"] = self._matched_terms(query)
+        matched = self._matched_terms(query)
+        result = generate_answer(query, retrieved, matched_terms=matched)
+        result["retrieved_chunks"] = [] if result.get("refused") else retrieved
+        result["matched_terms"] = matched
         return result
 
     def _matched_terms(self, query: str):

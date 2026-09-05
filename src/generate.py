@@ -45,16 +45,51 @@ def _format_context(chunks: List[Dict]) -> str:
 # Below this cosine score nothing in the corpus is genuinely related. Measured,
 # not guessed: the 12 labelled eval questions score 0.697 at worst, while
 # clearly out-of-corpus questions ("explain photosynthesis", "who won the 2018
-# World Cup") score 0.000, so anything in this gap is safe. It catches queries
-# with no vocabulary overlap; it does NOT catch a query that matched a single
-# incidental term — see matched_terms() in embeddings.py for that half.
+# World Cup") score 0.000, so anything in this gap is safe.
 MIN_USEFUL_SCORE = 0.35
 
+REFUSAL = (
+    "I can't answer this from the current knowledge base — nothing in the "
+    "notes is close enough to your question.\n\n"
+    "The knowledge base covers percentages, time and work, blood relations, "
+    "coding-decoding, fundamental rights, and major rivers of India."
+)
 
-def generate_answer(query: str, chunks: List[Dict]) -> Dict:
+
+def _no_topical_evidence(matched_terms) -> bool:
+    """True when the retriever recognised nothing, or only bare numbers.
+
+    The score threshold alone cannot catch "solve x + y = 10 and 2x = 8": the
+    vectoriser drops the algebra and keeps "10", which matches "decreases the
+    new price by 10%" and scores 0.989 — above every labelled eval question.
+
+    A number is the giveaway. "10" or "1978" turns up incidentally in notes on
+    any subject, so matching one says nothing about topic, whereas matching
+    "percentage" does. IDF cannot express this: "10" scores 3.71 in this
+    corpus, the highest of any term, while "percentage" scores 2.46 — so
+    weighting by rarity would reject the good question and accept the bad one.
+
+    Only fires when numbers are the *whole* of the evidence. "Article 32
+    meaning" matches "article" as well as "32", so it is answered normally.
+    """
+    if matched_terms is None:
+        return False  # backend has no vocabulary to miss (dense embeddings)
+    return all(
+        all(word.isnumeric() for word in term.split()) for term in matched_terms
+    )
+
+
+def generate_answer(query: str, chunks: List[Dict], matched_terms=None) -> Dict:
     """Returns {'answer': str, 'mode': 'llm' | 'fallback', 'sources': [...]}"""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     sources = [f"{c['doc_title']} — {c['section_title']}" for c in chunks]
+
+    # Refuse before generating, in both modes. Sending notes the question has
+    # no real overlap with invites the model to make a connection that isn't
+    # there, and it spends an API call to do it.
+    if not chunks or chunks[0].get("score", 0.0) < MIN_USEFUL_SCORE \
+            or _no_topical_evidence(matched_terms):
+        return {"answer": REFUSAL, "mode": "fallback", "refused": True, "sources": []}
 
     if api_key:
         try:
@@ -94,24 +129,11 @@ def _generate_fallback(query: str, chunks: List[Dict], sources: List[str]) -> Di
     """No-API-key mode: return the most relevant chunk verbatim with a
     clear label, so the pipeline is still demonstrable end-to-end.
 
-    Refusal matters here. In LLM mode the system prompt instructs the model to
-    say when the notes don't cover a question, but that instruction never runs
-    without an API key — so without the check below this path would answer
-    every question, however unrelated, with whatever ranked first.
+    Callers reach this only after generate_answer has cleared the refusal
+    checks, so the chunks here are known to be topically relevant.
     """
-    if not chunks or chunks[0].get("score", 0.0) < MIN_USEFUL_SCORE:
-        return {
-            "answer": (
-                "I can't answer this from the current knowledge base — nothing in "
-                "the notes is close enough to your question.\n\n"
-                "The knowledge base covers percentages, time and work, blood "
-                "relations, coding-decoding, fundamental rights, and major rivers "
-                "of India."
-            ),
-            "mode": "fallback",
-            "refused": True,
-            "sources": [],
-        }
+    if not chunks:
+        return {"answer": REFUSAL, "mode": "fallback", "refused": True, "sources": []}
     top = chunks[0]
     answer = (
         f"(Offline fallback mode — no ANTHROPIC_API_KEY set, so this is the top-matching "

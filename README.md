@@ -34,18 +34,29 @@ normalisation then erases the difference: a query backed by one incidental
 number and a query backed by five strong terms both become unit vectors, so
 cosine similarity cannot express *how much of the question was understood*.
 
-No single threshold separates these — the legitimate question "How do I
-quickly convert 1/7 into a percentage?" also matches just one term. So the
-system uses two signals instead of a fake-precision one:
+Counting matched terms doesn't separate these either — the legitimate question
+"How do I quickly convert 1/7 into a percentage?" also matches exactly one.
+Nor does weighting by rarity: `10` has an IDF of **3.71**, the highest of any
+term in this corpus, while `percentage` has 2.46, so an IDF rule would reject
+the good question and accept the broken one.
 
-- **A minimum score** (`MIN_USEFUL_SCORE`, 0.35) refuses questions with no
-  vocabulary overlap at all. Measured, not guessed: the labelled questions
-  score 0.697 at worst, genuinely unrelated ones score 0.000.
-- **The matched terms are shown to the user** whenever a question matched one
-  term or none. It cannot be a silent auto-reject, so the evidence is surfaced
-  instead: the algebra question reports *"matched only `10`"*, while the 1/7
-  question reports *"matched only `percentage`"* — and a reader can tell those
-  apart immediately, where a score of 0.989 told them nothing.
+What does separate them is **whether the evidence is a number**. A bare number
+turns up incidentally in notes on any subject, so matching one says nothing
+about topic. So the system refuses when either holds:
+
+- **The top score is below `MIN_USEFUL_SCORE` (0.35)** — no vocabulary overlap
+  at all. Measured, not guessed: the labelled questions score 0.697 at worst,
+  genuinely unrelated ones score 0.000.
+- **Every matched term is numeric** — the algebra question's sole evidence was
+  `10`. This fires only when numbers are the *whole* of the match, so "Article
+  32 meaning" is answered normally: it matches `article` as well as `32`.
+
+Measured on 12 labelled in-corpus questions and 8 out-of-corpus ones: **0
+wrongly refused, 0 wrongly answered.**
+
+A question that matches a single non-numeric term is still answered, but the
+UI names that term above the answer rather than below it, so a thin match is
+visible before the note is trusted.
 
 Refusal in LLM mode is separate and stronger: the system prompt instructs the
 model to say when the notes are insufficient. That instruction never runs
