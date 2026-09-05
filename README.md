@@ -130,7 +130,7 @@ corpus size but doesn't generalise, and it would mean committing a pickle.
 
 ## Project structure
 ```
-Hranker-/
+Hranker/
 ├── data/
 │   ├── raw/            # source knowledge-base notes (markdown)
 │   └── processed/       # generated: vectors.npy, chunks.json, embedder.pkl
