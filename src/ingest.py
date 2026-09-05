@@ -7,6 +7,7 @@ Run as: python src/ingest.py
 
 from __future__ import annotations
 import json
+import os
 import re
 from pathlib import Path
 from typing import List, Dict
@@ -53,7 +54,11 @@ def load_and_chunk_all(raw_dir: Path = RAW_DIR) -> List[Dict]:
     return all_chunks
 
 
-def build_index(backend: str = "tfidf"):
+DEFAULT_BACKEND = os.environ.get("RAG_BACKEND", "tfidf")
+
+
+def build_index(backend: str = None):
+    backend = backend or DEFAULT_BACKEND
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
     chunks = load_and_chunk_all()
@@ -74,10 +79,15 @@ def build_index(backend: str = "tfidf"):
         pickle.dump(embedder, f)
 
     print(f"Ingested {len(chunks)} chunks from {len(list(RAW_DIR.glob('*.md')))} documents.")
+    print(f"Backend: {backend}")
     print(f"Vector shape: {vectors.shape}")
     print(f"Saved index to: {PROCESSED_DIR}")
     return chunks, vectors
 
 
 if __name__ == "__main__":
-    build_index(backend="tfidf")
+    import sys
+
+    # Backend from argv, else $RAG_BACKEND, else tfidf — so comparing the two
+    # backends is a command, not a code edit.
+    build_index(backend=sys.argv[1] if len(sys.argv) > 1 else None)

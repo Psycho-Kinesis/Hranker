@@ -66,18 +66,49 @@ knowledge-base docs (`eval/eval_questions.json`), checking whether the
 correct source document appears in the top-3 retrieved chunks:
 
 ```
-Hit rate@3:      12/12 = 100.0%
-Top-1 accuracy:  12/12 = 100.0%
+Hit rate@3:              12/12 = 100.0%
+Top-1 accuracy:          12/12 = 100.0%
+Mean separation margin:  +0.815
+Min separation margin:   +0.579
 ```
-(Reproduce with `python eval/evaluate_retrieval.py`.)
+(Reproduce with `python eval/evaluate_retrieval.py`. Backend: TF-IDF + SVD.)
 
 **Honest caveat**: this is a small, clean, 6-document corpus built to prove
 the pipeline works end-to-end — 100% is expected here, not a claim of
-state-of-the-art retrieval. The natural next step (and a good thing to
-mention if asked in an interview) is scaling the knowledge base to 50-100+
-notes with more topic overlap, which is where TF-IDF's keyword-matching
-limits would start to show and the `sentence-transformers` backend would
-earn its keep.
+state-of-the-art retrieval. The six topics share almost no vocabulary, so
+even lexical matching separates them cleanly.
+
+**Why the third metric exists.** Hit-rate and top-1 accuracy are both pinned
+at 100%, which means neither can tell two retrievers apart — a saturated
+metric carries no information, so "TF-IDF scores 100%" and "dense embeddings
+score 100%" is not a comparison. The separation margin is the score gap
+between the best chunk from the correct document and the best chunk from any
+other document: it measures *how far* the right answer beat the field, not
+just whether it did. It has headroom, so it can actually rank two backends,
+and a shrinking margin is the early warning that retrieval is about to start
+failing. The closest call here is "Which Indian rivers flow west into the
+Arabian Sea?" at +0.579 — comfortable, but the narrowest of the twelve.
+
+### Comparing embedding backends
+
+Swapping backends is a command, not a code edit:
+
+```bash
+pip install sentence-transformers
+python src/ingest.py sentence-transformers   # or: RAG_BACKEND=sentence-transformers python src/ingest.py
+python eval/evaluate_retrieval.py
+```
+
+Because the fitted embedder is persisted next to the vectors, retrieval picks
+up the new backend with no other change — that is the payoff of the shared
+interface.
+
+The dense-backend numbers are deliberately **not** quoted here: the
+`all-MiniLM-L6-v2` weights could not be downloaded in the environment this
+was built in, so that run has not been made, and reporting a number nobody
+measured is exactly what the eval exists to avoid. Run the three commands
+above to fill it in. The honest prior is that hit-rate stays at 100% (there
+is nowhere to go) and the margin is where any difference will show.
 
 ## Running it
 
@@ -118,8 +149,12 @@ single step. The alternative — committing the index — would work at this
 corpus size but doesn't generalise, and it would mean committing a pickle.
 
 ## What I'd build next
-- Swap in `sentence-transformers` embeddings once running with full internet
-  access, and re-run the eval to quantify the lift over TF-IDF.
+- Run the dense-embedding comparison above and record both backends' margins
+  — the switch and the metric are in place, only the measurement is missing.
+- Grow the corpus to 50-100+ notes with deliberate topical overlap (simple
+  interest vs compound interest vs percentages all share vocabulary). That is
+  what makes the eval discriminating rather than saturated, and it is where
+  the dense backend should start to earn its keep.
 - Add a re-ranking step (cross-encoder) for cases where top-k retrieval is
   noisy on a larger corpus.
 - Track "couldn't answer" queries as a feed for identifying content gaps in
