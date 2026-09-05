@@ -17,7 +17,14 @@ class RAGPipeline:
         retrieved = self.retriever.search(query, k=k)
         result = generate_answer(query, retrieved)
         result["retrieved_chunks"] = retrieved
+        result["matched_terms"] = self._matched_terms(query)
         return result
+
+    def _matched_terms(self, query: str):
+        """Which query terms the retriever actually recognised, when the
+        backend can say. None means the backend has no vocabulary concept."""
+        getter = getattr(self.retriever.embedder, "matched_terms", None)
+        return getter(query) if callable(getter) else None
 
 
 if __name__ == "__main__":
@@ -29,6 +36,9 @@ if __name__ == "__main__":
 
     result = pipeline.ask(query)
     print(f"A ({result['mode']} mode):\n{result['answer']}\n")
+    terms = result.get("matched_terms")
+    if terms is not None:
+        print(f"Matched query terms: {', '.join(terms) if terms else '(none)'}")
     print("Sources:")
     for c in result["retrieved_chunks"]:
         print(f"  [{c['score']:.3f}] {c['source']} — {c['section_title']}")

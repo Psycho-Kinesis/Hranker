@@ -81,6 +81,18 @@ if query:
     st.markdown("### Answer")
     st.write(result["answer"])
 
+    # A question can match on one incidental term and still score highly,
+    # because L2-normalised cosine similarity cannot express how much of the
+    # question was understood. Showing the matched terms makes that visible
+    # instead of letting a confident-looking score speak for itself.
+    terms = result.get("matched_terms")
+    if terms is not None and not result.get("refused") and len(terms) <= 1:
+        matched = f"only `{terms[0]}`" if terms else "nothing"
+        st.warning(
+            f"Low confidence: your question matched {matched} in the knowledge "
+            "base, so this note may be unrelated to what you asked."
+        )
+
     with st.expander("📎 Retrieved source notes"):
         for chunk in result["retrieved_chunks"]:
             st.markdown(f"**{chunk['doc_title']} — {chunk['section_title']}**  \nscore: `{chunk['score']:.3f}`")

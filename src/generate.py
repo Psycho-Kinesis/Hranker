@@ -42,6 +42,15 @@ def _format_context(chunks: List[Dict]) -> str:
     return "\n\n".join(blocks)
 
 
+# Below this cosine score nothing in the corpus is genuinely related. Measured,
+# not guessed: the 12 labelled eval questions score 0.697 at worst, while
+# clearly out-of-corpus questions ("explain photosynthesis", "who won the 2018
+# World Cup") score 0.000, so anything in this gap is safe. It catches queries
+# with no vocabulary overlap; it does NOT catch a query that matched a single
+# incidental term — see matched_terms() in embeddings.py for that half.
+MIN_USEFUL_SCORE = 0.35
+
+
 def generate_answer(query: str, chunks: List[Dict]) -> Dict:
     """Returns {'answer': str, 'mode': 'llm' | 'fallback', 'sources': [...]}"""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -83,11 +92,24 @@ def _generate_with_claude(query: str, chunks: List[Dict], api_key: str, sources:
 
 def _generate_fallback(query: str, chunks: List[Dict], sources: List[str]) -> Dict:
     """No-API-key mode: return the most relevant chunk verbatim with a
-    clear label, so the pipeline is still demonstrable end-to-end."""
-    if not chunks:
+    clear label, so the pipeline is still demonstrable end-to-end.
+
+    Refusal matters here. In LLM mode the system prompt instructs the model to
+    say when the notes don't cover a question, but that instruction never runs
+    without an API key — so without the check below this path would answer
+    every question, however unrelated, with whatever ranked first.
+    """
+    if not chunks or chunks[0].get("score", 0.0) < MIN_USEFUL_SCORE:
         return {
-            "answer": "No relevant notes were found for this question.",
+            "answer": (
+                "I can't answer this from the current knowledge base — nothing in "
+                "the notes is close enough to your question.\n\n"
+                "The knowledge base covers percentages, time and work, blood "
+                "relations, coding-decoding, fundamental rights, and major rivers "
+                "of India."
+            ),
             "mode": "fallback",
+            "refused": True,
             "sources": [],
         }
     top = chunks[0]
@@ -96,4 +118,4 @@ def _generate_fallback(query: str, chunks: List[Dict], sources: List[str]) -> Di
         f"note shown directly rather than an LLM-generated answer.)\n\n"
         f"From \"{top['doc_title']} — {top['section_title']}\":\n\n{top['text']}"
     )
-    return {"answer": answer, "mode": "fallback", "sources": sources}
+    return {"answer": answer, "mode": "fallback", "refused": False, "sources": sources}

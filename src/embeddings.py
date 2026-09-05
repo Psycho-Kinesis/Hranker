@@ -66,6 +66,27 @@ class TfidfEmbedder:
         self.fit(texts)
         return self.transform(texts)
 
+    def matched_terms(self, text: str) -> List[str]:
+        """The query terms that actually exist in the fitted vocabulary.
+
+        Cosine similarity cannot express "I barely understood the question".
+        L2 normalisation turns a query backed by one stray token and a query
+        backed by ten strong ones into unit vectors alike, so a question that
+        matched only an incidental number can score higher than a real one.
+        Reporting which terms matched exposes that directly, without needing a
+        confidence threshold that this representation cannot honestly provide.
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() before matched_terms().")
+        analyzer = self.vectorizer.build_analyzer()
+        vocabulary = self.vectorizer.vocabulary_
+        seen, matched = set(), []
+        for token in analyzer(text):
+            if token in vocabulary and token not in seen:
+                seen.add(token)
+                matched.append(token)
+        return matched
+
 
 class SentenceTransformerEmbedder:
     """Dense semantic embeddings via sentence-transformers. Requires
@@ -87,6 +108,13 @@ class SentenceTransformerEmbedder:
     def fit_transform(self, texts: List[str]) -> np.ndarray:
         self.fit(texts)
         return self.transform(texts)
+
+    def matched_terms(self, text: str) -> List[str]:
+        """Not applicable: a dense model has no vocabulary to miss, and
+        embeds any text into a meaningful vector. Returning None (rather than
+        an empty list) lets callers tell "no terms matched" apart from "this
+        backend cannot answer the question"."""
+        return None
 
 
 def get_embedder(backend: str = "tfidf"):

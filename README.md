@@ -16,9 +16,41 @@ came from, and their similarity scores.*
 ## Why this project
 Coaching institutes get flooded with repetitive conceptual doubts. A grounded
 RAG assistant can resolve the common ones instantly, cite the exact note it
-used (so faculty can verify/trust it), and explicitly say "I don't know" when
-the knowledge base doesn't cover a question — instead of hallucinating an
-answer, which is the single biggest risk in an exam-prep context.
+used (so faculty can verify/trust it), and say when the knowledge base doesn't
+cover a question — instead of hallucinating an answer, which is the single
+biggest risk in an exam-prep context.
+
+### Knowing when it doesn't know
+
+This turned out to be the hardest part, and it is worth being precise about.
+
+Asked "solve x + y = 10 and 2x = 8" — algebra, which the corpus does not
+cover — the assistant confidently returned a note about percentages, scoring
+**0.989**, higher than any of the twelve labelled eval questions. The cause is
+not a missing threshold. The vectoriser drops single characters and stopwords,
+so `x`, `y`, `+`, `=`, `2x`, `8` and `solve` all disappeared and the only
+surviving term was `10`, which matched "decreases the new price by 10%". L2
+normalisation then erases the difference: a query backed by one incidental
+number and a query backed by five strong terms both become unit vectors, so
+cosine similarity cannot express *how much of the question was understood*.
+
+No single threshold separates these — the legitimate question "How do I
+quickly convert 1/7 into a percentage?" also matches just one term. So the
+system uses two signals instead of a fake-precision one:
+
+- **A minimum score** (`MIN_USEFUL_SCORE`, 0.35) refuses questions with no
+  vocabulary overlap at all. Measured, not guessed: the labelled questions
+  score 0.697 at worst, genuinely unrelated ones score 0.000.
+- **The matched terms are shown to the user** whenever a question matched one
+  term or none. It cannot be a silent auto-reject, so the evidence is surfaced
+  instead: the algebra question reports *"matched only `10`"*, while the 1/7
+  question reports *"matched only `percentage`"* — and a reader can tell those
+  apart immediately, where a score of 0.989 told them nothing.
+
+Refusal in LLM mode is separate and stronger: the system prompt instructs the
+model to say when the notes are insufficient. That instruction never runs
+without an API key, which is exactly why the offline path needed its own
+guard — the deployed demo runs in fallback mode by default.
 
 ## Architecture
 
